@@ -1,7 +1,12 @@
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+
+const storage = FlutterSecureStorage();
+const String baseUrl = 'http://192.168.100.151:8086';
 
 /// Titik awal aplikasi: menjalankan widget KatalogApp.
 void main() => runApp(const KatalogApp());
@@ -103,6 +108,7 @@ Widget chip(IconData icon, String label, {Color bg = lavender, Color? iconColor}
 
 // ---------- App ----------
 /// Widget akar: membuat MaterialApp, tema pastel, dan halaman pertama KatalogPage.
+
 class KatalogApp extends StatelessWidget {
   const KatalogApp({super.key});
 
@@ -113,16 +119,752 @@ class KatalogApp extends StatelessWidget {
     theme: ThemeData(
       useMaterial3: true,
       scaffoldBackgroundColor: cream,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFD99EB5)),
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFFD99EB5),
+      ),
       appBarTheme: const AppBarTheme(
         backgroundColor: cream,
         foregroundColor: ink,
         elevation: 0,
       ),
     ),
-    home: const KatalogPage(),
+    home: const AuthCheckPage(),
   );
 }
+
+class AuthCheckPage extends StatefulWidget {
+  const AuthCheckPage({super.key});
+
+  @override
+  State<AuthCheckPage> createState() => _AuthCheckPageState();
+}
+
+class _AuthCheckPageState extends State<AuthCheckPage> {
+  @override
+  void initState() {
+    super.initState();
+    checkLogin();
+  }
+
+  Future<void> checkLogin() async {
+    final token = await storage.read(key: 'access_token');
+
+    if (!mounted) return;
+
+    if (token != null && token.isNotEmpty) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const KatalogPage(),
+        ),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const LoginPage(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+}
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+
+  bool loading = false;
+  bool obscurePassword = true;
+  String error = '';
+
+  Future<void> login() async {
+    if (emailController.text.trim().isEmpty ||
+        passwordController.text.isEmpty) {
+      setState(() => error = 'Email dan password harus diisi.');
+      return;
+    }
+
+    setState(() {
+      loading = true;
+      error = '';
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': emailController.text.trim(),
+          'password': passwordController.text,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 &&
+          data['password_verified'] == true) {
+        if (!mounted) return;
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OtpPage(
+              userId: data['user_id'],
+            ),
+          ),
+        );
+      } else {
+        setState(() {
+          error = data['message'] ?? 'Email atau password salah.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        error = 'Tidak dapat terhubung ke server: $e';
+      });
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(25),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: box(pink, 25),
+                    child: const Icon(
+                      Icons.shopping_bag_rounded,
+                      size: 48,
+                      color: ink,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 30),
+                Center(
+                  child: Text(
+                    'Welcome to Delira ✿',
+                    style: txt(25, bold: true),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Center(
+                  child: Text(
+                    'Masuk untuk menemukan hal-hal menarik.',
+                    textAlign: TextAlign.center,
+                    style: txt(14, color: muted),
+                  ),
+                ),
+                const SizedBox(height: 35),
+
+                Text('Email', style: txt(14, bold: true)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    hintText: 'Masukkan email',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: const Icon(Icons.email_outlined),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+                Text('Password', style: txt(14, bold: true)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  decoration: InputDecoration(
+                    hintText: 'Masukkan password',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          obscurePassword = !obscurePassword;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 15),
+                  Text(error, style: txt(13, color: Colors.red)),
+                ],
+
+                const SizedBox(height: 25),
+                mainBtn(
+                  loading ? 'Memproses...' : 'Masuk',
+                  loading ? () {} : login,
+                  icon: Icons.login_rounded,
+                ),
+                const SizedBox(height: 18),
+                Center(
+                  child: TextButton(
+                    onPressed: loading
+                        ? null
+                        : () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const RegisterPage(),
+                              ),
+                            );
+                          },
+                    child: Text.rich(
+                      TextSpan(
+                        text: 'Belum punya akun? ',
+                        style: txt(14, color: muted),
+                        children: [
+                          TextSpan(
+                            text: 'Daftar',
+                            style: txt(14, bold: true, color: ink),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class RegisterPage extends StatefulWidget {
+  const RegisterPage({super.key});
+
+  @override
+  State<RegisterPage> createState() => _RegisterPageState();
+}
+
+class _RegisterPageState extends State<RegisterPage> {
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  final otpController = TextEditingController();
+
+  bool loading = false;
+  bool obscurePassword = true;
+  bool registered = false;
+
+  int? userId;
+  String otpAuthUrl = '';
+  String error = '';
+  String message = '';
+
+  Future<void> register() async {
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text;
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      setState(() => error = 'Semua kolom harus diisi.');
+      return;
+    }
+
+    if (password.length < 8) {
+      setState(() => error = 'Password minimal 8 karakter.');
+      return;
+    }
+
+    setState(() {
+      loading = true;
+      error = '';
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name': name,
+          'email': email,
+          'password': password,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 201 &&
+          data['registered'] == true) {
+        setState(() {
+          registered = true;
+          userId = data['user_id'];
+          otpAuthUrl = data['otp_auth_url'] ?? '';
+          message = data['message'] ?? 'Registrasi berhasil.';
+        });
+      } else {
+        setState(() {
+          error = data['message'] ?? 'Registrasi gagal.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        error = 'Tidak dapat terhubung ke server: $e';
+      });
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> verifyRegister() async {
+    final code = otpController.text.trim();
+
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      setState(() => error = 'Masukkan kode OTP 6 digit.');
+      return;
+    }
+
+    setState(() {
+      loading = true;
+      error = '';
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/register/verify'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_id': userId,
+          'code': code,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 &&
+          data['verified'] == true) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Registrasi berhasil! Silakan login.'),
+          ),
+        );
+
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const LoginPage(),
+          ),
+          (route) => false,
+        );
+      } else {
+        setState(() {
+          error = data['message'] ?? 'Verifikasi OTP gagal.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        error = 'Tidak dapat terhubung ke server: $e';
+      });
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    otpController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          registered ? 'Aktivasi Akun' : 'Daftar Delira',
+          style: txt(20, bold: true),
+        ),
+        backgroundColor: cream,
+        foregroundColor: ink,
+        elevation: 0,
+      ),
+      backgroundColor: cream,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(25),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: box(pink, 25),
+                  child: const Icon(
+                    Icons.person_add_alt_1_rounded,
+                    size: 45,
+                    color: ink,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 25),
+              Center(
+                child: Text(
+                  registered
+                      ? 'Aktifkan Google Authenticator'
+                      : 'Buat Akun Baru ✿',
+                  textAlign: TextAlign.center,
+                  style: txt(23, bold: true),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Center(
+                child: Text(
+                  registered
+                      ? 'Scan QR berikut menggunakan Google Authenticator.'
+                      : 'Isi data berikut untuk mulai menggunakan Delira.',
+                  textAlign: TextAlign.center,
+                  style: txt(14, color: muted),
+                ),
+              ),
+              const SizedBox(height: 30),
+
+              if (!registered) ...[
+                Text('Nama', style: txt(14, bold: true)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    hintText: 'Masukkan nama lengkap',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: const Icon(Icons.person_outline),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                Text('Email', style: txt(14, bold: true)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    hintText: 'Masukkan email',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: const Icon(Icons.email_outlined),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                Text('Password', style: txt(14, bold: true)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  decoration: InputDecoration(
+                    hintText: 'Minimal 8 karakter',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          obscurePassword = !obscurePassword;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 25),
+
+                mainBtn(
+                  loading ? 'Memproses...' : 'Daftar',
+                  loading ? () {} : register,
+                  icon: Icons.person_add_alt_1,
+                ),
+              ],
+
+              if (registered) ...[
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(15),
+                    decoration: box(Colors.white, 20),
+                    child: QrImageView(
+                      data: otpAuthUrl,
+                      version: QrVersions.auto,
+                      size: 230,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 15),
+                Center(
+                  child: Text(
+                    'Buka Google Authenticator, pilih Tambahkan akun, lalu scan QR di atas.',
+                    textAlign: TextAlign.center,
+                    style: txt(13, color: muted),
+                  ),
+                ),
+                const SizedBox(height: 25),
+                Text('Kode OTP', style: txt(14, bold: true)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: otpController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  decoration: InputDecoration(
+                    hintText: 'Masukkan 6 digit kode',
+                    counterText: '',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: const Icon(Icons.verified_user_outlined),
+                  ),
+                ),
+                const SizedBox(height: 25),
+                mainBtn(
+                  loading ? 'Memverifikasi...' : 'Verifikasi OTP',
+                  loading ? () {} : verifyRegister,
+                  icon: Icons.verified_rounded,
+                ),
+              ],
+
+              if (error.isNotEmpty) ...[
+                const SizedBox(height: 15),
+                Text(error, style: txt(13, color: Colors.red)),
+              ],
+
+              if (!registered) ...[
+                const SizedBox(height: 15),
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      'Sudah punya akun? Masuk',
+                      style: txt(14, bold: true, color: ink),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class OtpPage extends StatefulWidget {
+  final int userId;
+
+  const OtpPage({super.key, required this.userId});
+
+  @override
+  State<OtpPage> createState() => _OtpPageState();
+}
+
+class _OtpPageState extends State<OtpPage> {
+  final otpController = TextEditingController();
+
+  bool loading = false;
+  String error = '';
+
+  Future<void> verifyOtp() async {
+    final code = otpController.text.trim();
+
+    if (code.length != 6) {
+      setState(() => error = 'Masukkan kode OTP 6 digit.');
+      return;
+    }
+
+    setState(() {
+      loading = true;
+      error = '';
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/login/verify'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_id': widget.userId,
+          'code': code,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 &&
+          data['authenticated'] == true) {
+        await storage.write(
+          key: 'access_token',
+          value: data['access_token'],
+        );
+
+        if (!mounted) return;
+
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const KatalogPage(),
+          ),
+          (route) => false,
+        );
+      } else {
+        setState(() {
+          error = data['message'] ?? 'Kode OTP tidak valid.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        error = 'Gagal menghubungi server: $e';
+      });
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    otpController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(25),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(22),
+                  decoration: box(lavender, 25),
+                  child: const Icon(
+                    Icons.verified_user_rounded,
+                    size: 50,
+                    color: ink,
+                  ),
+                ),
+                const SizedBox(height: 25),
+                Text(
+                  'Verifikasi OTP',
+                  style: txt(25, bold: true),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Buka Google Authenticator dan masukkan kode 6 digit untuk melanjutkan.',
+                  textAlign: TextAlign.center,
+                  style: txt(14, color: muted),
+                ),
+                const SizedBox(height: 30),
+                TextField(
+                  controller: otpController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  textAlign: TextAlign.center,
+                  style: txt(25, bold: true),
+                  decoration: InputDecoration(
+                    hintText: '000000',
+                    counterText: '',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 15),
+                  Text(error, style: txt(13, color: Colors.red)),
+                ],
+                const SizedBox(height: 25),
+                mainBtn(
+                  loading ? 'Memverifikasi...' : 'Verifikasi',
+                  loading ? () {} : verifyOtp,
+                  icon: Icons.check_circle_outline,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 
 class KatalogPage extends StatefulWidget {
   const KatalogPage({super.key});
@@ -166,45 +908,349 @@ class _KatalogPageState extends State<KatalogPage> {
     super.dispose();
   }
 
-  // ---------- Logika (tidak diubah) ----------
-  /// Mengambil data produk dari API dummyjson.
-  /// Query kosong -> semua produk; ada query -> endpoint search.
-  /// Dipakai saat halaman dibuka, saat search, dan tombol 'Coba lagi'.
-  Future<void> loadProducts([String query = '']) async {
+Future<void> logout() async {
+  final token = await storage.read(key: 'access_token');
+
+  try {
+    if (token != null && token.isNotEmpty) {
+      await http.post(
+        Uri.parse('$baseUrl/logout'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+    }
+  } catch (e) {
+    debugPrint('Logout server gagal: $e');
+  }
+
+  await storage.delete(key: 'access_token');
+
+  if (!mounted) return;
+
+  Navigator.pushAndRemoveUntil(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const LoginPage(),
+    ),
+    (route) => false,
+  );
+}
+
+ 
+Future<void> loadProducts([String query = '']) async {
+  setState(() {
+    loading = true;
+    error = '';
+  });
+
+  try {
+    final token = await storage.read(key: 'access_token');
+
+    if (token == null || token.isEmpty) {
+      throw Exception('Sesi login tidak ditemukan. Silakan login kembali.');
+    }
+
+    final endpoint = query.trim().isEmpty
+        ? '$baseUrl/products?limit=0'
+        : '$baseUrl/products/search?q=${Uri.encodeQueryComponent(query.trim())}';
+
+    final response = await http.get(
+      Uri.parse(endpoint),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Status: ${response.statusCode} - ${response.body}',
+      );
+    }
+
+    final data = jsonDecode(response.body);
+
+    if (!mounted) return;
+
     setState(() {
-      loading = true;
-      error = '';
+      products = data['products'] as List<dynamic>;
+      loading = false;
+      selectedCategory = 'Semua';
     });
+  } catch (e) {
+    if (!mounted) return;
 
-    try {
-      // Pilih endpoint: semua produk atau hasil pencarian (query di-encode agar aman).
-      final endpoint = query.trim().isEmpty
-          ? 'https://dummyjson.com/products?limit=0'
-          : 'https://dummyjson.com/products/search?q=${Uri.encodeQueryComponent(query.trim())}';
+    setState(() {
+      loading = false;
+      error = 'Gagal memuat produk: $e';
+    });
+  }
+}
 
-      // Kirim request GET ke API, lalu cek status (harus 200).
-      final response = await http.get(Uri.parse(endpoint));
-      if (response.statusCode != 200) throw Exception('Gagal mengambil data');
+    // ---------- CRUD PRODUK ----------
 
-      // Ubah teks JSON menjadi data Dart, lalu simpan daftar produknya.
-      final data = jsonDecode(response.body);
-      // Cegah error jika halaman sudah ditutup sebelum data tiba.
-      if (!mounted) return;
+  final String baseUrl = 'http://192.168.100.151:8086';
 
-      setState(() {
-        products = data['products'] as List<dynamic>;
-        loading = false;
-        selectedCategory = 'Semua';
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-        error = 'Produk gagal dimuat. Periksa koneksi internet.';
-      });
+  /// Menampilkan formulir tambah atau edit produk.
+  Future<void> showProductForm({dynamic product}) async {
+    final isEdit = product != null;
+
+    final titleController =
+        TextEditingController(text: isEdit ? product['title'] : '');
+    final descriptionController =
+        TextEditingController(text: isEdit ? product['description'] : '');
+    final categoryController =
+        TextEditingController(text: isEdit ? product['category'] : '');
+    final priceController =
+        TextEditingController(text: isEdit ? '${product['price']}' : '');
+    final stockController =
+        TextEditingController(text: isEdit ? '${product['stock']}' : '');
+    final brandController =
+        TextEditingController(text: isEdit ? product['brand'] ?? '' : '');
+    final thumbnailController =
+        TextEditingController(text: isEdit ? product['thumbnail'] ?? '' : '');
+
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: cream,
+        title: Text(
+          isEdit ? 'Edit Produk' : 'Tambah Produk',
+          style: txt(20, bold: true),
+        ),
+        content: SizedBox(
+          width: 400,
+          child: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _productField(titleController, 'Nama Produk', required: true),
+                  _productField(descriptionController, 'Deskripsi'),
+                  _productField(categoryController, 'Kategori'),
+                  _productField(
+                    priceController,
+                    'Harga',
+                    required: true,
+                    number: true,
+                  ),
+                  _productField(
+                    stockController,
+                    'Stok',
+                    number: true,
+                  ),
+                  _productField(brandController, 'Merek'),
+                  _productField(thumbnailController, 'URL Gambar'),
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: ink,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+
+              final body = {
+                'title': titleController.text.trim(),
+                'description': descriptionController.text.trim(),
+                'category': categoryController.text.trim(),
+                'price': double.tryParse(priceController.text) ?? 0,
+                'stock': int.tryParse(stockController.text) ?? 0,
+                'brand': brandController.text.trim(),
+                'thumbnail': thumbnailController.text.trim(),
+              };
+
+              try {
+                  final token = await storage.read(key: 'access_token');
+
+                  if (token == null || token.isEmpty) {
+                    throw Exception('Token login tidak ditemukan. Silakan login kembali.');
+                  }
+
+                  final uri = isEdit
+                      ? Uri.parse('$baseUrl/products/${product['id']}')
+                      : Uri.parse('$baseUrl/products/add');
+
+                  final headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer $token',
+                  };
+
+                  final response = isEdit
+                      ? await http.put(
+                          uri,
+                          headers: headers,
+                          body: jsonEncode(body),
+                        )
+                      : await http.post(
+                          uri,
+                          headers: headers,
+                          body: jsonEncode(body),
+                        );
+
+                if (response.statusCode == 200 ||
+                    response.statusCode == 201) {
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext, true);
+                  }
+                } else {
+                  throw Exception(response.body);
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(content: Text('Gagal menyimpan produk: $e')),
+                  );
+                }
+              }
+            },
+            child: Text(isEdit ? 'Simpan Perubahan' : 'Tambah'),
+          ),
+        ],
+      ),
+    );
+
+    titleController.dispose();
+    descriptionController.dispose();
+    categoryController.dispose();
+    priceController.dispose();
+    stockController.dispose();
+    brandController.dispose();
+    thumbnailController.dispose();
+
+    if (result == true && mounted) {
+      await loadProducts(keyword);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isEdit ? 'Produk berhasil diperbarui' : 'Produk berhasil ditambahkan',
+          ),
+          backgroundColor: ink,
+        ),
+      );
     }
   }
 
+    /// Menghapus produk dari database melalui API.
+  
+Future<void> deleteProduct(dynamic product) async {
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: cream,
+      title: Text('Hapus Produk', style: txt(20, bold: true)),
+      content: Text(
+        'Yakin ingin menghapus ${product['title']}?',
+        style: txt(14),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Batal'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: ink,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Hapus'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirm != true || !mounted) return;
+
+  try {
+    final token = await storage.read(key: 'access_token');
+
+    if (token == null || token.isEmpty) {
+      throw Exception('Token login tidak ditemukan.');
+    }
+
+    final response = await http.delete(
+      Uri.parse('$baseUrl/products/${product['id']}'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      await loadProducts(keyword);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Produk berhasil dihapus'),
+          backgroundColor: ink,
+        ),
+      );
+    } else {
+      throw Exception(response.body);
+    }
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Gagal menghapus produk: $e')),
+    );
+  }
+}
+
+  /// Membuat kolom input formulir produk.
+  Widget _productField(
+    TextEditingController controller,
+    String label, {
+    bool required = false,
+    bool number = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: controller,
+        keyboardType:
+            number ? const TextInputType.numberWithOptions(decimal: true) : null,
+        decoration: InputDecoration(
+          labelText: label,
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        validator: (value) {
+          if (required && (value == null || value.trim().isEmpty)) {
+            return '$label wajib diisi';
+          }
+
+          if (number && value != null && value.isNotEmpty) {
+            if (double.tryParse(value) == null) {
+              return 'Masukkan angka yang benar';
+            }
+          }
+
+          return null;
+        },
+      ),
+    );
+  }
   /// Daftar kategori dari semua produk (tanpa duplikat, terurut), 'Semua' di paling depan.
   List<String> get categories {
     final values =
@@ -404,26 +1450,58 @@ class _KatalogPageState extends State<KatalogPage> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('little things,', style: txt(14, color: muted)),
-                  Text('Delira ✿', style: txt(28, bold: true)),
-                ],
-              ),
+            Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('little things,', style: txt(14, color: muted)),
+                Text('Delira ✿', style: txt(28, bold: true)),
+              ],
             ),
-            CircleAvatar(
-              backgroundColor: lavender,
-              child: IconButton(
-                icon: const Icon(Icons.shopping_bag_outlined, color: ink),
-                onPressed: () => setState(() => currentTab = 1),
-              ),
+          ),
+          IconButton(
+            tooltip: 'Tambah Produk',
+            onPressed: () => showProductForm(),
+            icon: const Icon(Icons.add_circle_outline, color: ink),
+          ),
+          IconButton(
+            tooltip: 'Keluar',
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('Keluar dari akun?'),
+                  content: const Text('Kamu perlu login kembali untuk masuk.'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Batal'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Keluar'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirm == true) {
+                await logout();
+              }
+            },
+            icon: const Icon(Icons.logout_rounded, color: ink),
+          ),
+          CircleAvatar(
+            backgroundColor: lavender,
+            child: IconButton(
+              icon: const Icon(Icons.shopping_bag_outlined, color: ink),
+              onPressed: () => setState(() => currentTab = 1),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
         const SizedBox(height: 16),
         TextField(
           controller: searchController,
@@ -436,13 +1514,29 @@ class _KatalogPageState extends State<KatalogPage> {
           decoration: InputDecoration(
             hintText: 'Cari produk favoritmu...',
             prefixIcon: const Icon(Icons.search, color: muted),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () {
-                searchController.clear();
-                keyword = '';
-                loadProducts();
-              },
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.search, color: ink),
+                  tooltip: 'Cari Produk',
+                  onPressed: () {
+                    keyword = searchController.text.trim();
+                    loadProducts(keyword);
+                    FocusScope.of(context).unfocus();
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Hapus Pencarian',
+                  onPressed: () {
+                    searchController.clear();
+                    keyword = '';
+                    loadProducts();
+                    FocusScope.of(context).unfocus();
+                  },
+                ),
+              ],
             ),
             filled: true,
             fillColor: Colors.white,
@@ -540,16 +1634,68 @@ class _KatalogPageState extends State<KatalogPage> {
                     decoration: box(bg, 16),
                     child: Hero(tag: 'product-${p['id']}', child: netImg(p['thumbnail'])),
                   ),
-                  if (discount > 0)
+                    if (discount > 0)
                     Positioned(
                       top: 8,
                       left: 8,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
                         decoration: box(Colors.white, 10),
                         child: Text('-$discount%', style: txt(10, bold: true)),
                       ),
                     ),
+
+                  Positioned(
+                    top: 2,
+                    right: 2,
+                    child: Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      child: PopupMenuButton<String>(
+                        icon: const Icon(
+                          Icons.more_vert,
+                          color: ink,
+                          size: 20,
+                        ),
+                        onSelected: (value) {
+                          if (value == 'edit') {
+                            showProductForm(product: p);
+                          } else if (value == 'delete') {
+                            deleteProduct(p);
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: Row(
+                              children: [
+                                Icon(Icons.edit_outlined, size: 19),
+                                SizedBox(width: 8),
+                                Text('Edit'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete_outline,
+                                  size: 19,
+                                  color: Colors.red,
+                                ),
+                                SizedBox(width: 8),
+                                Text('Hapus'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
