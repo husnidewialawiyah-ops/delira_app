@@ -118,7 +118,7 @@ Ganti alamat IP tersebut sesuai jaringan yang digunakan.
 flutter run
 ```
 
-## Pengembang
+
 
 **Nama:** Husni Dewi Alawiyah  
 **Program Studi:** Teknik Informatika  
