@@ -23,9 +23,9 @@ const muted = Color(0xFF898493);
 
 /// Mengubah harga dolar dari API menjadi Rupiah (kurs tetap 16.000),
 /// dibulatkan, lalu diberi titik ribuan. Contoh: Rp 160.000.
+
 String money(dynamic value) {
-  final hargaUSD = (value as num).toDouble();
-  final hargaRupiah = (hargaUSD * 16000).round();
+  final hargaRupiah = (value as num).round();
 
   final formatted = hargaRupiah.toString().replaceAllMapped(
     RegExp(r'\B(?=(\d{3})+(?!\d))'),
@@ -34,6 +34,7 @@ String money(dynamic value) {
 
   return 'Rp $formatted';
 }
+
 
 /// Helper UI: membuat TextStyle singkat (ukuran, tebal, warna).
 TextStyle txt(double size, {bool bold = false, Color color = ink}) => TextStyle(
@@ -994,159 +995,72 @@ Future<void> loadProducts([String query = '']) async {
   final String baseUrl = 'http://192.168.100.151:8086';
 
   /// Menampilkan formulir tambah atau edit produk.
-  Future<void> showProductForm({dynamic product}) async {
-    final isEdit = product != null;
+Future<void> showProductForm({dynamic product}) async {
+  final isEdit = product != null;
 
-    final titleController =
-        TextEditingController(text: isEdit ? product['title'] : '');
-    final descriptionController =
-        TextEditingController(text: isEdit ? product['description'] : '');
-    final categoryController =
-        TextEditingController(text: isEdit ? product['category'] : '');
-    final priceController =
-        TextEditingController(text: isEdit ? '${product['price']}' : '');
-    final stockController =
-        TextEditingController(text: isEdit ? '${product['stock']}' : '');
-    final brandController =
-        TextEditingController(text: isEdit ? product['brand'] ?? '' : '');
-    final thumbnailController =
-        TextEditingController(text: isEdit ? product['thumbnail'] ?? '' : '');
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return ProductFormDialog(
+        product: product,
+        onSave: (body) async {
+          final token = await storage.read(key: 'access_token');
 
-    final formKey = GlobalKey<FormState>();
+          if (token == null || token.isEmpty) {
+            throw Exception(
+              'Token login tidak ditemukan. Silakan login kembali.',
+            );
+          }
 
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: cream,
-        title: Text(
-          isEdit ? 'Edit Produk' : 'Tambah Produk',
-          style: txt(20, bold: true),
+          final uri = isEdit
+              ? Uri.parse('$baseUrl/products/${product['id']}')
+              : Uri.parse('$baseUrl/products/add');
+
+          final headers = {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          };
+
+          final response = isEdit
+              ? await http.put(
+                  uri,
+                  headers: headers,
+                  body: jsonEncode(body),
+                )
+              : await http.post(
+                  uri,
+                  headers: headers,
+                  body: jsonEncode(body),
+                );
+
+          if (response.statusCode != 200 &&
+              response.statusCode != 201) {
+            throw Exception(response.body);
+          }
+        },
+      );
+    },
+  );
+
+  if (result == true && mounted) {
+    await loadProducts(keyword);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isEdit
+              ? 'Produk berhasil diperbarui'
+              : 'Produk berhasil ditambahkan',
         ),
-        content: SizedBox(
-          width: 400,
-          child: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _productField(titleController, 'Nama Produk', required: true),
-                  _productField(descriptionController, 'Deskripsi'),
-                  _productField(categoryController, 'Kategori'),
-                  _productField(
-                    priceController,
-                    'Harga',
-                    required: true,
-                    number: true,
-                  ),
-                  _productField(
-                    stockController,
-                    'Stok',
-                    number: true,
-                  ),
-                  _productField(brandController, 'Merek'),
-                  _productField(thumbnailController, 'URL Gambar'),
-                ],
-              ),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ink,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-
-              final body = {
-                'title': titleController.text.trim(),
-                'description': descriptionController.text.trim(),
-                'category': categoryController.text.trim(),
-                'price': double.tryParse(priceController.text) ?? 0,
-                'stock': int.tryParse(stockController.text) ?? 0,
-                'brand': brandController.text.trim(),
-                'thumbnail': thumbnailController.text.trim(),
-              };
-
-              try {
-                  final token = await storage.read(key: 'access_token');
-
-                  if (token == null || token.isEmpty) {
-                    throw Exception('Token login tidak ditemukan. Silakan login kembali.');
-                  }
-
-                  final uri = isEdit
-                      ? Uri.parse('$baseUrl/products/${product['id']}')
-                      : Uri.parse('$baseUrl/products/add');
-
-                  final headers = {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer $token',
-                  };
-
-                  final response = isEdit
-                      ? await http.put(
-                          uri,
-                          headers: headers,
-                          body: jsonEncode(body),
-                        )
-                      : await http.post(
-                          uri,
-                          headers: headers,
-                          body: jsonEncode(body),
-                        );
-
-                if (response.statusCode == 200 ||
-                    response.statusCode == 201) {
-                  if (dialogContext.mounted) {
-                    Navigator.pop(dialogContext, true);
-                  }
-                } else {
-                  throw Exception(response.body);
-                }
-              } catch (e) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(content: Text('Gagal menyimpan produk: $e')),
-                  );
-                }
-              }
-            },
-            child: Text(isEdit ? 'Simpan Perubahan' : 'Tambah'),
-          ),
-        ],
+        backgroundColor: ink,
       ),
     );
-
-    titleController.dispose();
-    descriptionController.dispose();
-    categoryController.dispose();
-    priceController.dispose();
-    stockController.dispose();
-    brandController.dispose();
-    thumbnailController.dispose();
-
-    if (result == true && mounted) {
-      await loadProducts(keyword);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isEdit ? 'Produk berhasil diperbarui' : 'Produk berhasil ditambahkan',
-          ),
-          backgroundColor: ink,
-        ),
-      );
-    }
   }
+}
 
     /// Menghapus produk dari database melalui API.
-  
 Future<void> deleteProduct(dynamic product) async {
   final confirm = await showDialog<bool>(
     context: context,
@@ -1876,6 +1790,244 @@ Future<void> deleteProduct(dynamic product) async {
   );
 }
 
+class ProductFormDialog extends StatefulWidget {
+  final dynamic product;
+  final Future<void> Function(Map<String, dynamic> body) onSave;
+
+  const ProductFormDialog({
+    super.key,
+    this.product,
+    required this.onSave,
+  });
+
+  @override
+  State<ProductFormDialog> createState() => _ProductFormDialogState();
+}
+
+class _ProductFormDialogState extends State<ProductFormDialog> {
+  late final TextEditingController titleController;
+  late final TextEditingController descriptionController;
+  late final TextEditingController categoryController;
+  late final TextEditingController priceController;
+  late final TextEditingController stockController;
+  late final TextEditingController brandController;
+  late final TextEditingController thumbnailController;
+
+  final formKey = GlobalKey<FormState>();
+
+  bool isSaving = false;
+
+  bool get isEdit => widget.product != null;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final product = widget.product;
+
+    titleController = TextEditingController(
+      text: isEdit ? product['title'] ?? '' : '',
+    );
+
+    descriptionController = TextEditingController(
+      text: isEdit ? product['description'] ?? '' : '',
+    );
+
+    categoryController = TextEditingController(
+      text: isEdit ? product['category'] ?? '' : '',
+    );
+
+    priceController = TextEditingController(
+      text: isEdit ? '${product['price']}' : '',
+    );
+
+    stockController = TextEditingController(
+      text: isEdit ? '${product['stock']}' : '',
+    );
+
+    brandController = TextEditingController(
+      text: isEdit ? product['brand'] ?? '' : '',
+    );
+
+    thumbnailController = TextEditingController(
+      text: isEdit ? product['thumbnail'] ?? '' : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    descriptionController.dispose();
+    categoryController.dispose();
+    priceController.dispose();
+    stockController.dispose();
+    brandController.dispose();
+    thumbnailController.dispose();
+
+    super.dispose();
+  }
+
+  Widget _productField(
+    TextEditingController controller,
+    String label, {
+    bool required = false,
+    bool number = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: number
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : null,
+        decoration: InputDecoration(
+          labelText: label,
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        validator: (value) {
+          if (required && (value == null || value.trim().isEmpty)) {
+            return '$label wajib diisi';
+          }
+
+          if (number && value != null && value.isNotEmpty) {
+            if (double.tryParse(value) == null) {
+              return 'Masukkan angka yang benar';
+            }
+          }
+
+          return null;
+        },
+      ),
+    );
+  }
+
+  Future<void> _saveProduct() async {
+    if (isSaving) return;
+
+    if (!formKey.currentState!.validate()) return;
+
+    final body = {
+      'title': titleController.text.trim(),
+      'description': descriptionController.text.trim(),
+      'category': categoryController.text.trim(),
+      'price': double.tryParse(priceController.text) ?? 0,
+      'stock': int.tryParse(stockController.text) ?? 0,
+      'brand': brandController.text.trim(),
+      'thumbnail': thumbnailController.text.trim(),
+    };
+
+    setState(() {
+      isSaving = true;
+    });
+
+    try {
+      await widget.onSave(body);
+
+      if (!mounted) return;
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal menyimpan produk: $e'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isSaving = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: cream,
+      title: Text(
+        isEdit ? 'Edit Produk' : 'Tambah Produk',
+        style: txt(20, bold: true),
+      ),
+      content: SizedBox(
+        width: 400,
+        child: SingleChildScrollView(
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _productField(
+                  titleController,
+                  'Nama Produk',
+                  required: true,
+                ),
+                _productField(
+                  descriptionController,
+                  'Deskripsi',
+                ),
+                _productField(
+                  categoryController,
+                  'Kategori',
+                ),
+                _productField(
+                  priceController,
+                  'Harga',
+                  required: true,
+                  number: true,
+                ),
+                _productField(
+                  stockController,
+                  'Stok',
+                  number: true,
+                ),
+                _productField(
+                  brandController,
+                  'Merek',
+                ),
+                _productField(
+                  thumbnailController,
+                  'URL Gambar',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: isSaving
+              ? null
+              : () => Navigator.pop(context, false),
+          child: const Text('Batal'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: ink,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: isSaving ? null : _saveProduct,
+          child: isSaving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Text(isEdit ? 'Simpan Perubahan' : 'Tambah'),
+        ),
+      ],
+    );
+  }
+}
 // ---------- Halaman Detail ----------
 /// Halaman detail produk: memakai data produk yang dikirim dari halaman depan (tanpa panggil API lagi).
 class DetailPage extends StatefulWidget {
