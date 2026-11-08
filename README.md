@@ -118,12 +118,6 @@ Ganti alamat IP tersebut sesuai jaringan yang digunakan.
 flutter run
 ```
 
-## Video Demonstrasi
-
-Video penjelasan dan demonstrasi aplikasi:
-
-**YouTube:** [Masukkan link video YouTube di sini]
-
 ## Pengembang
 
 **Nama:** Husni Dewi Alawiyah  
